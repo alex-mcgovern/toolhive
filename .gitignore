@@ -35,3 +35,18 @@ go.work
 kconfig.yaml
 
 .DS_Store
+
+# Web logs
+web/logs
+web/*.log
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+web/pnpm-debug.log*
+web/lerna-debug.log*
+
+# Web files
+web/node_modules
+web/dist
+web/dist-ssr
+web/*.local
