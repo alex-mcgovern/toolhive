@@ -49,6 +49,12 @@ tasks:
       - mkdir -p bin
       - go build -ldflags "-s -w -X github.com/stacklok/toolhive/cmd/thv/app.Version={{.VERSION}} -X github.com/stacklok/toolhive/cmd/thv/app.Commit={{.COMMIT}} -X github.com/stacklok/toolhive/cmd/thv/app.BuildDate={{.BUILD_DATE}}" -o bin/thv ./cmd/thv
 
+  build-web:
+    desc: Build the web frontend
+    cmds:
+      - cd web && npm run build
+    deps: [install-web]
+
   install:
     desc: Install the thv binary to GOPATH/bin
     vars:
@@ -60,6 +66,11 @@ tasks:
         sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
     cmds:
       - go install -ldflags "-s -w -X github.com/stacklok/toolhive/pkg/versions.Version={{.VERSION}} -X github.com/stacklok/toolhive/pkg/versions.Commit={{.COMMIT}} -X github.com/stacklok/toolhive/pkg/versions.BuildDate={{.BUILD_DATE}}" -v ./cmd/thv
+
+  install-web:
+    desc: Install the dependencies for the web frontend
+    cmds:
+      - cd web && npm install
 
   all:
     desc: Run linting, tests, and build
