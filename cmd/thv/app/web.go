@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	s "github.com/stacklok/toolhive/pkg/api"
+	webAssets "github.com/stacklok/toolhive/web"
 )
 
 // Port for serving the static web interface
@@ -63,9 +65,15 @@ func webCmdFunc(cmd *cobra.Command, _ []string) error {
 	return startServersAndWait(ctx, apiAddress, webAddress, webDir, debugMode)
 }
 
-// findWebDirectory locates the web/dist directory containing the Vite React application.
-// The web/dist directory must exist if the application has been properly built.
+// findWebDirectory attempts to locate the web/dist directory containing the Vite React application,
+// either as embedded assets or in the file system.
 func findWebDirectory() (string, error) {
+	// First try to use embedded assets
+	if embeddedFS, err := useEmbeddedAssets(); err == nil {
+		return embeddedFS, nil
+	}
+
+	// Fallback to file system for development mode
 	// In production, we expect the web/dist directory to be relative to the executable
 	execPath, err := os.Executable()
 	if err != nil {
@@ -145,7 +153,12 @@ func startWebServer(webAddress, webDir string) <-chan error {
 // Without this handler, direct navigation to routes like /foo would fail
 // because the server would look for a /foo file that doesn't exist.
 func createSPAHandler(webDir string) http.Handler {
-	// Create a file server handler for static assets
+	// Check if we're using embedded assets
+	if webDir == "::embedded::" {
+		return createEmbeddedSPAHandler()
+	}
+
+	// Create a file server handler for static assets on disk
 	fileServer := http.FileServer(http.Dir(webDir))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +175,52 @@ func createSPAHandler(webDir string) http.Handler {
 		// For all other paths, serve index.html for React Router
 		http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
 	})
+}
+
+// createEmbeddedSPAHandler creates an HTTP handler for embedded assets with SPA support
+func createEmbeddedSPAHandler() http.Handler {
+	// Get the embedded filesystem
+	webFS, err := webAssets.GetWebAssets()
+	if err != nil {
+		// If there's an error, return a handler that always returns an error
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Embedded assets not available: "+err.Error(), http.StatusInternalServerError)
+		})
+	}
+
+	// Create a file server for the embedded assets
+	fileServer := http.FileServer(webFS)
+
+	// Return a handler that implements the SPA pattern
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Try to serve the file directly first
+		origPath := r.URL.Path
+
+		// Open the file to check if it exists
+		f, err := webFS.Open(origPath)
+		if err == nil {
+			f.Close() // File exists, close it and serve normally
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// If file doesn't exist, serve index.html for the SPA
+		// Reset the URL path to serve the index.html file
+		r2 := new(http.Request)
+		*r2 = *r // Clone the request
+		r2.URL = new(url.URL)
+		*r2.URL = *r.URL
+		r2.URL.Path = "index.html"
+		fileServer.ServeHTTP(w, r2)
+	})
+}
+
+// useEmbeddedAssets returns a special path indicating we're using embedded assets.
+// This is used as a signal to createSPAHandler to use the embedded filesystem.
+func useEmbeddedAssets() (string, error) {
+	// This special string indicates we're using embedded assets
+	// It doesn't represent a real file path and is used internally
+	return "::embedded::", nil
 }
 
 // openBrowser opens the specified URL in the default browser of the user's OS
